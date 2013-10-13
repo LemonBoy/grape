@@ -1,0 +1,7 @@
+*.txt
+*.py
+*.pl
+*.nds
+*.elf
+fs/
+build/
