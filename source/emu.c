@@ -51,7 +51,7 @@ void emu_init ()
     video_init();
 
     // Load the appropriate bios
-    if (load_bin("apple.rom", 0xD000, 0x3000, &crc)) {
+    if (load_bin("BASIC.ROM", 0xD000, 0x3000, &crc)) {
         valid_crc = valid_rom_crc(crc);
         iprintf("BIOS CRC16 %04x (%s)\n", crc, (valid_crc) ? "Valid" : "Invalid");
         // Refuse to load a wrong bios
