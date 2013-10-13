@@ -22,8 +22,26 @@ void emu_reset ()
     cpu_reset();
 }
 
+int valid_rom_crc (const u16 crc)
+{
+    const u16 known_crcs[] = {
+        0xAC8F, // 12288 BASIC.ROM 
+        0x3F44, // 12288 apple.rom
+    };
+    int i;
+
+    for (i = 0; i < sizeof(known_crcs)/sizeof(u16); i++)
+        if (crc == known_crcs[i])
+            return 1;
+
+    return 0;
+}
+
 void emu_init ()
 {
+    u16 crc;
+    int valid_crc;
+
     keyboardShow();
 
     // Set some sane defaults
@@ -33,12 +51,11 @@ void emu_init ()
     video_init();
 
     // Load the appropriate bios
-    u16 crc;
-    /*load_bin("APPLE2.ROM", 0xB000, 0x5000, &crc);*/
-    if (load_bin("BASIC.ROM", 0xD000, 0x3000, &crc)) {
-        iprintf("BIOS CRC16 %04x (%s)\n", crc, (crc == 0xAC8F) ? "Valid" : "Invalid");
+    if (load_bin("apple.rom", 0xD000, 0x3000, &crc)) {
+        valid_crc = valid_rom_crc(crc);
+        iprintf("BIOS CRC16 %04x (%s)\n", crc, (valid_crc) ? "Valid" : "Invalid");
         // Refuse to load a wrong bios
-        if (crc != 0xAC8F)
+        if (!valid_crc)
             while (1);
     } else {
         iprintf("No BASIC.ROM found. Halting.");
