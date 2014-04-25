@@ -112,9 +112,11 @@ u8 video_io_read (u16 addr)
     switch (addr&0xf) {
         case 0x0:
             text_mode = 0;
+            mixed_mode = 0;
             break;
         case 0x1:
             text_mode = 1;
+            mixed_mode = 0;
             break;
         case 0x2:
             mixed_mode = 0;
@@ -130,9 +132,11 @@ u8 video_io_read (u16 addr)
             break;
         case 0x6:
             hires = 0;
+            mixed_mode = 0;
             break;
         case 0x7:
             hires = 1;
+            mixed_mode = 0;
             break;
         // Annunciators
         case 0x8:

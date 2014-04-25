@@ -39,7 +39,7 @@ void update_input ()
     kbd_key = keyboardUpdate();
 
     if (kbd_key > 0) {
-        switch (keybd_latch) {
+        switch (kbd_key) {
             case DVK_ENTER:
                 keybd_latch = 0x8d;
                 return;

@@ -11,12 +11,22 @@ typedef struct state_hdr_t {
 
 #define STATE_MAGIC (0x47525033)
 
+char *build_path (int slot)
+{
+    static char tmp[1024];
+    if (basename)
+        snprintf(tmp, sizeof(tmp), "%s.%03i", basename, slot);
+    else
+        snprintf(tmp, sizeof(tmp), "grape.%03i", slot);
+    return tmp;
+}
+
 int state_save (int slot)
 {
     FILE *f;
     state_hdr_t h;
 
-    f = fopen("game.sav", "w+");
+    f = fopen(build_path(slot), "w+");
     if (f)
         return 0;
 
@@ -51,7 +61,7 @@ int state_load (int slot)
     FILE *f;
     state_hdr_t h;
 
-    f = fopen("game.sav", "w+");
+    f = fopen(build_path(slot), "w+");
     if (f)
         return 0;
 
