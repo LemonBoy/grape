@@ -112,11 +112,11 @@ u8 video_io_read (u16 addr)
     switch (addr&0xf) {
         case 0x0:
             text_mode = 0;
-            /*mixed_mode = 0;*/
             break;
         case 0x1:
             text_mode = 1;
-            /*mixed_mode = 0;*/
+            // The mixed mode can be enabled only if graphic mode is set
+            mixed_mode = 0;
             break;
         case 0x2:
             mixed_mode = 0;
@@ -305,11 +305,7 @@ void video_draw ()
         if (text_mode)
             draw_text_scr(text_ptr);
         else
-            if (hires)
-                draw_hires_scr(gfx_ptr);
-            else
-                draw_lores_scr(gfx_ptr);
-
+            (hires) ? draw_hires_scr(gfx_ptr) : draw_lores_scr(gfx_ptr);
     }
     
     // Clear this here otherwise we won't be able to render a lores 

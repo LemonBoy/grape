@@ -6,13 +6,13 @@ static u8 key_map[12] = {
     0x20,   // B
     0x80,   // SELECT
     0x80,   // START
-    0x4C,   // RIGHT
-    0x4A,   // LEFT
-    0x4B,   // UP
-    0x80,   // DOWN
+    0x4c,   // RIGHT
+    0x48,   // LEFT
+    0x4b,   // UP
+    0x4a,   // DOWN
     0x80,   // R
     0x80,   // L
-    0x80,   // X
+    0x1b,   // X
     0x80,   // Y
 };
 

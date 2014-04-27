@@ -43,7 +43,7 @@ void emu_init ()
     int valid_crc;
 
     keysSetRepeat(30, 10);
-    /*keyboardShow();*/
+    keyboardShow();
 
     // Set some sane defaults
     emu_vsync = 0;
