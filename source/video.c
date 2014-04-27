@@ -112,11 +112,11 @@ u8 video_io_read (u16 addr)
     switch (addr&0xf) {
         case 0x0:
             text_mode = 0;
-            mixed_mode = 0;
+            /*mixed_mode = 0;*/
             break;
         case 0x1:
             text_mode = 1;
-            mixed_mode = 0;
+            /*mixed_mode = 0;*/
             break;
         case 0x2:
             mixed_mode = 0;
@@ -132,11 +132,9 @@ u8 video_io_read (u16 addr)
             break;
         case 0x6:
             hires = 0;
-            mixed_mode = 0;
             break;
         case 0x7:
             hires = 1;
-            mixed_mode = 0;
             break;
         // Annunciators
         case 0x8:
@@ -176,12 +174,13 @@ void draw_lores_scr (u16 *map)
             *map++ = col_a << 8 | col_a;
             *map++ = col_a << 8 | col_a;
             *map++ = col_a << 8 | col_a;
-            *map++ = col_b << 8 | col_a;
+            *map++ = col_a << 8 | col_a;
+            *map++ = col_b << 8 | col_b;
             *map++ = col_b << 8 | col_b;
             *map++ = col_b << 8 | col_b;
             *map++ = col_b << 8 | col_b;
         }
-        map += 232/2;
+        map += 192/2;
     }
 }
 
@@ -320,24 +319,25 @@ void video_draw ()
 
 int video_set_scale (int mode) 
 {
-    int scale_x;
+    int scaleg_x, scalet_x;
     int scale_y;
 
     switch (mode) {
         default:
         case 0:
-            scale_x = floatToFixed(1., 8);
+            scaleg_x = scalet_x = floatToFixed(1., 8);
             scale_y = floatToFixed(1., 8);
             break;
         case 1:
             // 280 / 256 = 1.09
-            scale_x = floatToFixed(1.09, 8);
+            scaleg_x = floatToFixed(1.09, 8);
+            scalet_x = floatToFixed(1.25, 8);
             scale_y = floatToFixed(1., 8);
             break;
     }
 
-    bgSetScale(gfx_bg, scale_x, scale_y);
-    bgSetScale(text_bg, scale_x, scale_y);
+    bgSetScale(gfx_bg, scaleg_x, scale_y);
+    bgSetScale(text_bg, scalet_x, scale_y);
 
     return 1;
 }

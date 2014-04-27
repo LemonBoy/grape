@@ -11,7 +11,7 @@ typedef struct state_hdr_t {
 
 #define STATE_MAGIC (0x47525033)
 
-char *build_path (int slot)
+char *build_path (const int slot)
 {
     static char tmp[1024];
     if (basename)
@@ -21,14 +21,18 @@ char *build_path (int slot)
     return tmp;
 }
 
-int state_save (int slot)
+int state_save (const int slot)
 {
     FILE *f;
     state_hdr_t h;
+    const char *path;
 
-    f = fopen(build_path(slot), "w+");
-    if (f)
+    path = build_path(slot+1);
+    f = fopen(path, "wb");
+    if (!f) {
+        print_msg("Save failed!");
         return 0;
+    }
 
     h.magic = STATE_MAGIC;
     h.ver = 1;
@@ -56,21 +60,26 @@ int state_save (int slot)
     return 1;
 }
 
-int state_load (int slot)
+int state_load (const int slot)
 {
     FILE *f;
     state_hdr_t h;
+    const char *path;
 
-    f = fopen(build_path(slot), "w+");
-    if (f)
+    path = build_path(slot+1);
+    f = fopen(path, "rb");
+    if (!f) {
+        print_msg("Load failed!");
         return 0;
-
-    h.magic = STATE_MAGIC;
-    h.ver = 1;
-    h.flags = 0;
-    h.resv = 0;
+    }
 
     fread(&h, 1, sizeof(state_hdr_t), f);
+
+    if (h.magic != STATE_MAGIC) {
+        fclose(f);
+        print_msg("Invalid save file!");
+        return 0;
+    }
 
     fread(&cpu_regs, 6, 4, f);
     fread(&mainram, 1, sizeof(mainram), f);

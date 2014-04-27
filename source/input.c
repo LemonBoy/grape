@@ -23,11 +23,13 @@ void update_input ()
     int kbd_key;
 
     scanKeys();
-    keys = keysHeld()&0xfff;
+    keys = (keysDownRepeat()|keysDown())&0xfff;
 
     // Send keyboard scancodes when a key is pressed
     if (emu_input == INPUT_KBD && keys) {
-        keybd_latch = 0x80 ^ key_map[__builtin_ctz(keys)];
+        int bit_set = __builtin_ffs(keys);
+        if (bit_set)
+            keybd_latch = 0x80 ^ key_map[bit_set-1];
     } 
     
     if (emu_input == INPUT_JSTK) {

@@ -1,6 +1,10 @@
 .arm
 .section .itcm,"ax",%progbits
 
+#define UNDOC_OPS
+//#define PRINT_TRACE
+//#define CHECK_IDLE_JUMP
+
 .global cpu_run
 .global cpu_reset
 .global cpu_regs
@@ -27,16 +31,6 @@ cycles  .req r5
     orr r0, r1, lsl #8 
 .endm
 
-.macro rebase_sp r
-    ldr r0, =(mainram+0x100)
-    add \r, r0
-.endm
-
-.macro unbase_sp r
-    ldr r0, =(mainram+0x100)
-    sub \r, reg_sp, r0
-.endm
-
 .macro rebase_pc r
     ldr r1, =memmap_r
     mov r2, \r, lsr #12
@@ -48,16 +42,22 @@ cycles  .req r5
 
 .macro unbase_pc r
     ldr r1, =last_page
-    ldr r2, [r1]
-    sub \r, reg_pc, r2
+    ldr r1, [r1]
+    sub \r, reg_pc, r1
 .endm
 
-.macro push b
-    strb \b, [reg_sp], #-1
+.macro push r
+    ldr r3, =(mainram+0x100)
+    strb \r, [r3, reg_sp]
+    sub reg_sp, #1
+    and reg_sp, #255
 .endm
 
-.macro pop
-    ldrb r0, [reg_sp, #1]!
+.macro pop r
+    ldr r1, =(mainram+0x100)
+    add reg_sp, #1
+    and reg_sp, #255
+    ldrb \r, [r1, reg_sp]
 .endm
 
 .macro adr_zp_z
@@ -77,51 +77,71 @@ cycles  .req r5
 .macro adr_abs r
     fetchw
     mov r1, r0, lsr #8
-    cmp r1, #0xff
-    subeq cycles, #1
     add r0, \r
+    cmp r1, r0, lsr #8
+    // Page crossing adds a penality cycle
+    subne cycles, #1
 .endm
 
 .macro adr_idx 
     fetchw
-    ldr r1, =memmap_r
-    mov r2, r0, lsr #12
-    ldr r1, [r1, r2, lsl #2]
-    add r1, r0
-    ldrb r0, [r1, #0]
-    ldrb r1, [r1, #1]
+    and r4, r0, #0xff00 
+    add r3, r0, #1
+    and r3, #255
+    orr r4, r3
+    ldr r2, =memmap_r
+
+    lsr r1, r0, #12
+    ldr r3, [r2, r1, lsl #2]
+    ldrb r0, [r3, r0]
+
+    lsr r1, r4, #12
+    ldr r3, [r2, r1, lsl #2]
+    ldrb r1, [r3, r4]
+
     orr r0, r1, lsl #8
 .endm
 
 .macro adr_idx_x
     fetch
-    ldr r1, =memmap_r
     add r0, reg_x
-    ldr r1, [r1]
-    add r1, r0
-    ldrb r0, [r1, #0]
-    ldrb r1, [r1, #1]
+    and r0, #255
+    ldr r3, =memmap_r
+    ldr r3, [r3]
+    add r2, r0, #1
+    and r2, #255
+    ldrb r0, [r3, r0]
+    ldrb r1, [r3, r2]
     orr r0, r1, lsl #8
 .endm
 
 .macro adr_idx_y
     fetch
     ldr r3, =memmap_r
-    ldr r2, [r3]
-    add r2, r2, r0
-    ldrb r0, [r2, #0]
-    ldrb r1, [r2, #1]
+    ldr r3, [r3]
+    add r2, r0, #1
+    and r2, #255
+    ldrb r0, [r3, r0]
+    ldrb r1, [r3, r2]
     orr r0, r1, lsl #8
-    add r1, r0, reg_y
-    eor r2, r1, r0
-    tst r2, #0x100
+    add r0, reg_y
+    // Page crossing adds a penality cycle
+    cmp r1, r0, lsr #8
     subne cycles, #1
-    mov r0, r1
 .endm
 
 .macro adr_rel
     ldrsb r0, [reg_pc], #1
-    // Sign extend
+#ifdef CHECK_IDLE_JUMP
+    cmp r0, #-2
+    bne 2f
+//    unbase_pc reg_pc
+//    ldr r0, =idle_loop_msg
+//    mov r1, reg_pc
+//    bl iprintf
+    b _xx
+#endif
+2:  // Sign extend
     add r2, reg_pc, r0
     eor r1, r2, reg_pc
     tst r1, #0x100
@@ -133,6 +153,7 @@ cycles  .req r5
 #define FLAG_ZERO   0x02<<24
 #define FLAG_INTR   0x04<<24
 #define FLAG_DEC    0x08<<24
+#define FLAG_BRK    0x20<<24
 #define FLAG_OVER   0x40<<24
 #define FLAG_NEG    0x80<<24
 
@@ -147,6 +168,21 @@ cycles  .req r5
     orrvs reg_f, #FLAG_OVER
     orrmi reg_f, #FLAG_NEG
     mov reg_a, reg_a, lsr #24
+    // Decimal mode
+    tst reg_f, #FLAG_DEC
+    beq 1f
+    bic reg_f, #FLAG_CARRY
+    // Low nibble
+    and r2, reg_a, #0x0f
+    cmp r2, #0x09
+    addhi reg_a, #0x06
+    // High nibble
+    and r1, reg_a, #0xf0<<24
+    cmp r1, #0x90
+    addhi reg_a, #0x60
+    orrhi reg_f, #FLAG_CARRY
+    add cycles, #1
+1:  nop
 .endm
 
 .macro op_sbc r
@@ -159,6 +195,22 @@ cycles  .req r5
     orrmi reg_f, #FLAG_NEG
     movs reg_a, reg_a, lsr #24
     orreq reg_f, #FLAG_ZERO
+    // Decimal mode
+    tst reg_f, #FLAG_DEC
+    beq 1f
+    sub reg_a, #0x66
+    bic reg_f, #FLAG_CARRY
+    // Low nibble
+    and r2, reg_a, #0x0f
+    cmp r2, #0x09
+    addhi reg_a, #0x06
+    // High nibble
+    and r1, reg_a, #0xf0<<24
+    cmp r1, #0x90
+    addhi reg_a, #0x60
+    orrhi reg_f, #FLAG_CARRY
+    add cycles, #1
+1:  nop
 .endm
 
 .macro op_and a1
@@ -216,11 +268,10 @@ cycles  .req r5
 .endm
 
 .macro op_lsr a1
-    bic reg_f, #(FLAG_CARRY+FLAG_ZERO)
+    bic reg_f, #(FLAG_CARRY+FLAG_ZERO+FLAG_NEG)
     movs \a1, \a1, lsr #1
     orrcs reg_f, #FLAG_CARRY
     orreq reg_f, #FLAG_ZERO
-    //flag_neg \a1
 .endm
 
 .macro op_ora a1
@@ -264,9 +315,19 @@ cycles  .req r5
     orrne reg_f, #FLAG_NEG    
 .endm
 
+.macro op_txb set, a1
+    tst \a1, reg_a
+    orreq reg_f, #FLAG_ZERO
+    bicne reg_f, #FLAG_ZERO
+    .if \set == 1
+    orr \a1, reg_a
+    .else
+    bic \a1, reg_a
+    .endif
+.endm
+
 // NOP
 _ea:
-_7a:
     mov r0, #2
     b instr_end
 // ORA
@@ -277,45 +338,45 @@ _09:
     b instr_end
 _05:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_ora r2
     mov r0, #3
     b instr_end
 _15:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_ora r2
     mov r0, #4
     b instr_end
 _0d:
     adr_abs_z
-	bl readb
+    bl readb
     op_ora r0
     mov r0, #4
     b instr_end
 _1d:
     adr_abs reg_x
-	bl readb
+    bl readb
     op_ora r0
     mov r0, #4
     b instr_end
 _19:
     adr_abs reg_y
-	bl readb
+    bl readb
     op_ora r0
     mov r0, #4
     b instr_end
 _01:
     adr_idx_x
-	bl readb
+    bl readb
     op_ora r0
     mov r0, #6
     b instr_end
 _11:
     adr_idx_y
-	bl readb
+    bl readb
     op_ora r0
     mov r0, #5
     b instr_end
@@ -327,45 +388,45 @@ _29:
     b instr_end
 _25:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_and r2
     mov r0, #3
     b instr_end
 _35:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_and r2
     mov r0, #4
     b instr_end
 _2d:
     adr_abs_z
-	bl readb
+    bl readb
     op_and r0
     mov r0, #4
     b instr_end
 _3d:
     adr_abs reg_x
-	bl readb
+    bl readb
     op_and r0
     mov r0, #4
     b instr_end
 _39:
     adr_abs reg_y
-	bl readb
+    bl readb
     op_and r0
     mov r0, #4
     b instr_end
 _21:
     adr_idx_x
-	bl readb
+    bl readb
     op_and r0
     mov r0, #6
     b instr_end
 _31:
     adr_idx_y
-	bl readb
+    bl readb
     op_and r0
     mov r0, #5
     b instr_end
@@ -376,7 +437,7 @@ _0a:
     b instr_end
 _06:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_asl r2
     strb r2, [r1, r0]
@@ -384,7 +445,7 @@ _06:
     b instr_end
 _16:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_asl r2
     strb r2, [r1, r0]
@@ -393,21 +454,21 @@ _16:
 _0e:
     adr_abs_z
     mov r4, r0
-	bl readb
+    bl readb
     op_asl r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _1e:
     adr_abs reg_x
     mov r4, r0
-	bl readb
+    bl readb
     op_asl r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #7
     b instr_end
 // BCC
@@ -440,18 +501,17 @@ _f0:
 // BIT
 _24:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_bit r2
     mov r0, #3
     b instr_end
 _2c:
     adr_abs_z
-	bl readb
+    bl readb
     op_bit r0
     mov r0, #4
     b instr_end
-.ltorg
 // BMI
 _30:
     tst reg_f, #FLAG_NEG
@@ -481,8 +541,8 @@ _10:
     b instr_end
 // BRK
 _00:
-    add reg_pc, #1
     unbase_pc r0
+    add r0, #1
     mov r1, r0, lsr #8
     and r2, r0, #0xff
     push r1
@@ -490,7 +550,7 @@ _00:
     mov r0, reg_f, lsr #24
     orr r0, #0x30
     push r0
-    orr reg_f, #FLAG_INTR
+    orr reg_f, #(FLAG_INTR|FLAG_BRK)
     
     ldr r0, =memmap_r
     ldr r0, [r0, #0xf<<2]
@@ -505,21 +565,18 @@ _00:
     b instr_end
 // RTI
 _40:
-    pop
-    bic reg_f, #0xff000000
-    orr reg_f, r0, lsl #24
-    pop
-    mov reg_pc, r0
-    pop
+    pop r0
+    mov reg_f, r0, lsl #24
+    pop reg_pc 
+    pop r0
     orr reg_pc, r0, lsl #8   
+    rebase_pc reg_pc
     mov r0, #6
     b instr_end
-.ltorg
 // RTS
 _60:
-    pop
-    mov reg_pc, r0
-    pop
+    pop reg_pc
+    pop r0
     orr reg_pc, r0, lsl #8
     add reg_pc, #1
     rebase_pc reg_pc
@@ -543,24 +600,23 @@ _20:
     rebase_pc reg_pc
     mov r0, #6
     b instr_end
-
 // STX
 _86:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     strb reg_x, [r1, r0]
     mov r0, #3
     b instr_end
 _96:
     adr_zp reg_y
-	ldr r1, =mainram
+    ldr r1, =mainram
     strb reg_x, [r1, r0]
     mov r0, #4
     b instr_end
 _8e:
     adr_abs_z
     mov r1, reg_x
-	bl writeb
+    bl writeb
     mov r0, #4
     b instr_end
 // LDY
@@ -576,7 +632,7 @@ _a0:
 _a4:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_y, [r1, r0]
     movs reg_y, reg_y, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -584,11 +640,10 @@ _a4:
     lsr reg_y, #24
     mov r0, #3
     b instr_end
-.ltorg
 _b4:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_y, [r1, r0]
     movs reg_y, reg_y, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -599,7 +654,7 @@ _b4:
 _ac:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_abs_z
-	bl readb
+    bl readb
     movs reg_y, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -609,7 +664,7 @@ _ac:
 _bc:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_abs reg_x
-	bl readb
+    bl readb
     movs reg_y, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -619,20 +674,20 @@ _bc:
 // STY
 _84:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     strb reg_y, [r1, r0]
     mov r0, #3
     b instr_end
 _94:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     strb reg_y, [r1, r0]
     mov r0, #4
     b instr_end
 _8c:
     adr_abs_z
     mov r1, reg_y
-	bl writeb
+    bl writeb
     mov r0, #4
     b instr_end
 .ltorg
@@ -667,7 +722,7 @@ _a9:
 _a5:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_a, [r1, r0]
     movs reg_a, reg_a, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -678,7 +733,7 @@ _a5:
 _b5:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_a, [r1, r0]
     movs reg_a, reg_a, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -689,7 +744,7 @@ _b5:
 _ad:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_abs_z
-	bl readb
+    bl readb
     movs reg_a, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -699,7 +754,7 @@ _ad:
 _bd:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_abs reg_x
-	bl readb
+    bl readb
     movs reg_a, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -709,7 +764,7 @@ _bd:
 _b9:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_abs reg_y
-	bl readb
+    bl readb
     movs reg_a, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -719,7 +774,7 @@ _b9:
 _a1:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_idx_x
-	bl readb
+    bl readb
     movs reg_a, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -729,7 +784,7 @@ _a1:
 _b1:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_idx_y
-	bl readb
+    bl readb
     movs reg_a, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -739,56 +794,74 @@ _b1:
 // STA
 _85:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     strb reg_a, [r1, r0]
     mov r0, #3
     b instr_end
 _95:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     strb reg_a, [r1, r0]
     mov r0, #4
     b instr_end
 _8d:
     adr_abs_z
     mov r1, reg_a
-	bl writeb
+    bl writeb
     mov r0, #4
     b instr_end
 _9d:
     adr_abs reg_x
     mov r1, reg_a
-	bl writeb
+    bl writeb
     mov r0, #5
     b instr_end
 _99:
     adr_abs reg_y
     mov r1, reg_a
-	bl writeb
+    bl writeb
     mov r0, #5
     b instr_end
 _81:
     adr_idx_x
     mov r1, reg_a
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _91:
     adr_idx_y
     mov r1, reg_a
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 // JMP
 _4c:
     adr_abs_z
-    mov reg_pc, r0
+#ifdef CHECK_IDLE_JUMP
+    cmp reg_pc, r0
+    bne 2f
+    unbase_pc reg_pc
+    ldr r0, =idle_loop_msg
+    mov r1, reg_pc
+    bl iprintf
+1:  b 1b
+#endif
+2:  mov reg_pc, r0
     rebase_pc reg_pc
     mov r0, #3
     b instr_end
 _6c:
     adr_idx
-    mov reg_pc, r0
+#ifdef CHECK_IDLE_JUMP
+    cmp reg_pc, r0
+    bne 2f
+    unbase_pc reg_pc
+    ldr r0, =idle_loop_msg
+    mov r1, reg_pc
+    bl iprintf
+1:  b 1b
+#endif
+2:  mov reg_pc, r0
     rebase_pc reg_pc
     mov r0, #5
     b instr_end
@@ -800,7 +873,7 @@ _48:
 // PLA
 _68:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
-    pop
+    pop r0
     movs reg_a, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -814,7 +887,7 @@ _4a:
     b instr_end
 _46:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_lsr r2
     strb r2, [r1, r0]
@@ -822,7 +895,7 @@ _46:
     b instr_end
 _56:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_lsr r2
     strb r2, [r1, r0]
@@ -831,21 +904,21 @@ _56:
 _4e:
     adr_abs_z
     mov r4, r0
-	bl readb
+    bl readb
     op_lsr r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _5e:
     adr_abs reg_x
     mov r4, r0
-	bl readb
+    bl readb
     op_lsr r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #7
     b instr_end
 // ADC
@@ -856,45 +929,45 @@ _69:
     b instr_end
 _65:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r0, [r1, r0]
     op_adc r0
     mov r0, #3
     b instr_end
 _75:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r0, [r1, r0]
     op_adc r0
     mov r0, #4
     b instr_end
 _6d:
     adr_abs_z
-	bl readb
+    bl readb
     op_adc r0
     mov r0, #4
     b instr_end
 _7d:
     adr_abs reg_x
-	bl readb
+    bl readb
     op_adc r0
     mov r0, #4
     b instr_end
 _79:
     adr_abs reg_y
-	bl readb
+    bl readb
     op_adc r0
     mov r0, #4
     b instr_end
 _61:
     adr_idx_x
-	bl readb
+    bl readb
     op_adc r0
     mov r0, #6
     b instr_end
 _71:
     adr_idx_y
-	bl readb
+    bl readb
     op_adc r0
     mov r0, #5
     b instr_end
@@ -906,45 +979,45 @@ _e9:
     b instr_end
 _e5:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r0, [r1, r0]
     op_sbc r0
     mov r0, #3
     b instr_end
 _f5:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r0, [r1, r0]
     op_sbc r0
     mov r0, #4
     b instr_end
 _ed:
     adr_abs_z
-	bl readb
+    bl readb
     op_sbc r0
     mov r0, #4
     b instr_end
 _fd:
     adr_abs reg_x
-	bl readb
+    bl readb
     op_sbc r0
     mov r0, #4
     b instr_end
 _f9:
     adr_abs reg_y
-	bl readb
+    bl readb
     op_sbc r0
     mov r0, #4
     b instr_end
 _e1:
     adr_idx_x
-	bl readb
+    bl readb
     op_sbc r0
     mov r0, #6
     b instr_end
 _f1:
     adr_idx_y
-	bl readb
+    bl readb
     op_sbc r0
     mov r0, #5
     b instr_end
@@ -962,7 +1035,7 @@ _a2:
 _a6:
     bic reg_f, #(FLAG_NEG+FLAG_ZERO)
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_x, [r1, r0]
     movs reg_x, reg_x, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -973,7 +1046,7 @@ _a6:
 _b6:
     bic reg_f, #(FLAG_NEG+FLAG_ZERO)
     adr_zp reg_y
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_x, [r1, r0]
     movs reg_x, reg_x, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -984,7 +1057,7 @@ _b6:
 _ae:
     bic reg_f, #(FLAG_NEG+FLAG_ZERO)
     adr_abs_z
-	bl readb
+    bl readb
     movs reg_x, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -994,7 +1067,7 @@ _ae:
 _be:
     bic reg_f, #(FLAG_NEG+FLAG_ZERO)
     adr_abs reg_y
-	bl readb
+    bl readb
     movs reg_x, r0, lsl #24
     orreq reg_f, #FLAG_ZERO
     orrmi reg_f, #FLAG_NEG
@@ -1009,14 +1082,14 @@ _e0:
     b instr_end
 _e4:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_cmp reg_x, r2
     mov r0, #3
     b instr_end
 _ec:
     adr_abs_z
-	bl readb
+    bl readb
     op_cmp reg_x, r0
     mov r0, #4
     b instr_end
@@ -1028,45 +1101,45 @@ _c9:
     b instr_end
 _c5:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_cmp reg_a, r2
     mov r0, #3
     b instr_end
 _d5:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_cmp reg_a, r2
     mov r0, #4
     b instr_end
 _cd:
     adr_abs_z
-	bl readb
+    bl readb
     op_cmp reg_a, r0
     mov r0, #4
     b instr_end
 _dd:
     adr_abs reg_x
-	bl readb
+    bl readb
     op_cmp reg_a, r0
     mov r0, #4
     b instr_end
 _d9:
     adr_abs reg_y
-	bl readb
+    bl readb
     op_cmp reg_a, r0
     mov r0, #4
     b instr_end
 _c1:
     adr_idx_x
-	bl readb
+    bl readb
     op_cmp reg_a, r0
     mov r0, #6
     b instr_end
 _d1:
     adr_idx_y
-	bl readb
+    bl readb
     op_cmp reg_a, r0
     mov r0, #5
     b instr_end
@@ -1078,14 +1151,14 @@ _c0:
     b instr_end
 _c4:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_cmp reg_y, r2
     mov r0, #3
     b instr_end
 _cc:
     adr_abs_z
-	bl readb
+    bl readb
     op_cmp reg_y, r0
     mov r0, #4
     b instr_end
@@ -1097,52 +1170,52 @@ _49:
     b instr_end
 _45:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_eor r2
     mov r0, #3
     b instr_end
 _55:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_eor r2
     mov r0, #4
     b instr_end
 _4d:
     adr_abs_z
-	bl readb
+    bl readb
     op_eor r0
     mov r0, #4
     b instr_end
 _5d:
     adr_abs reg_x
-	bl readb
+    bl readb
     op_eor r0
     mov r0, #4
     b instr_end
 _59:
     adr_abs reg_y
-	bl readb
+    bl readb
     op_eor r0
     mov r0, #4
     b instr_end
 _41:
     adr_idx_x
-	bl readb
+    bl readb
     op_eor r0
     mov r0, #6
     b instr_end
 _51:
     adr_idx_y
-	bl readb
+    bl readb
     op_eor r0
     mov r0, #5
     b instr_end
 // INC
 _e6:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_inc r2
     strb r2, [r1, r0]
@@ -1150,7 +1223,7 @@ _e6:
     b instr_end
 _f6:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_inc r2
     strb r2, [r1, r0]
@@ -1159,21 +1232,21 @@ _f6:
 _ee:
     adr_abs_z
     mov r4, r0
-	bl readb
+    bl readb
     op_inc r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _fe:
     adr_abs reg_x
     mov r4, r0
-	bl readb
+    bl readb
     op_inc r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #7
     b instr_end
 // INY
@@ -1246,22 +1319,22 @@ _98:
 // TXS
 _9a:
     mov reg_sp, reg_x
-    rebase_sp reg_sp
     mov r0, #2
     b instr_end
 // TSX
 _ba:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
-    unbase_sp reg_x
+    mov reg_x, reg_sp
+    movs reg_x, reg_x, lsl #24
     orreq reg_f, #FLAG_ZERO
-    movs r1, reg_x, lsl #24
     orrmi reg_f, #FLAG_NEG
+    mov reg_x, reg_x, lsr #24
     mov r0, #2
     b instr_end
 // DEC
 _c6:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_dec r2
     strb r2, [r1, r0]
@@ -1269,7 +1342,7 @@ _c6:
     b instr_end
 _d6:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_dec r2
     strb r2, [r1, r0]
@@ -1278,21 +1351,21 @@ _d6:
 _ce:
     adr_abs_z
     mov r4, r0
-	bl readb
+    bl readb
     op_dec r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _de:
     adr_abs reg_x
     mov r4, r0
-	bl readb
+    bl readb
     op_dec r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #7
     b instr_end
 // CLC
@@ -1303,13 +1376,13 @@ _18:
 // PHP
 _08:
     mov r0, reg_f, lsr #24
-    orr r0, #0x30 // MAGIC!
+    orr r0, #0x30 // BRK flag + reserved bit
     push r0
     mov r0, #3
     b instr_end
 // PLP
 _28:
-    pop
+    pop r0
     mov reg_f, r0, lsl #24
     mov r0, #4
     b instr_end
@@ -1320,7 +1393,7 @@ _2a:
     b instr_end
 _26:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_rol r2
     strb r2, [r1, r0]
@@ -1328,7 +1401,7 @@ _26:
     b instr_end   
 _36:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_rol r2
     strb r2, [r1, r0]
@@ -1337,21 +1410,21 @@ _36:
 _2e:
     adr_abs_z
     mov r4, r0
-	bl readb
+    bl readb
     op_rol r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _3e:
     adr_abs reg_x
     mov r4, r0
-	bl readb
+    bl readb
     op_rol r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #7
     b instr_end   
 // ROR
@@ -1361,7 +1434,7 @@ _6a:
     b instr_end
 _66:
     adr_zp_z
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_ror r2
     strb r2, [r1, r0]
@@ -1369,7 +1442,7 @@ _66:
     b instr_end
 _76:
     adr_zp reg_x
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb r2, [r1, r0]
     op_ror r2
     strb r2, [r1, r0]
@@ -1378,21 +1451,21 @@ _76:
 _6e:
     adr_abs_z
     mov r4, r0
-	bl readb
+    bl readb
     op_ror r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #6
     b instr_end
 _7e:
     adr_abs reg_x
     mov r4, r0
-	bl readb
+    bl readb
     op_ror r0
     mov r1, r0
     mov r0, r4
-	bl writeb
+    bl writeb
     mov r0, #7
     b instr_end
 // SEI
@@ -1410,11 +1483,16 @@ _b8:
     bic reg_f, #FLAG_OVER
     mov r0, #2
     b instr_end
+#ifdef UNDOC_OPS
+// NOP
+_7a:
+    mov r0, #2
+    b instr_end
 // LAX
 _b7:
     bic reg_f, #(FLAG_ZERO+FLAG_NEG)
     adr_zp reg_y
-	ldr r1, =mainram
+    ldr r1, =mainram
     ldrb reg_a, [r1, r0]
     movs reg_x, reg_a, lsl #24
     orreq reg_f, #FLAG_ZERO
@@ -1435,7 +1513,7 @@ _fc:
 // SLO
 _07:
     adr_zp_z
-	ldr r2, =mainram
+    ldr r2, =mainram
     ldrb r1, [r2, r0]
     movs r1, r1, lsl #25
     orrcs reg_f, #FLAG_CARRY
@@ -1444,6 +1522,137 @@ _07:
     op_ora r1
     mov r0, #5
     b instr_end
+_1a:
+_3c:
+_5a:
+_89:
+_93:
+_c7:
+_da:
+_f7:
+_fa:
+_0c:
+_3a:
+_64:
+_74:
+_80:
+_9c:
+_9e:
+    b _xx
+#else
+// BIT
+_89:
+    fetch
+    tst reg_a, r0
+    bicne reg_f, #FLAG_ZERO
+    orreq reg_f, #FLAG_ZERO
+    mov r0, #2
+    b instr_end
+_3c:
+    adr_abs reg_x
+    bl readb
+    op_bit r0
+    mov r0, #4
+    b instr_end
+// PHX
+_da:
+    push reg_x
+    mov r0, #3
+    b instr_end
+// PHY
+_5a:
+    push reg_y
+    mov r0, #3
+    b instr_end
+// PLX
+_fa:
+    bic reg_f, #(FLAG_ZERO+FLAG_NEG)
+    pop reg_x
+    movs reg_x, reg_x, lsl #24
+    orreq reg_f, #FLAG_ZERO
+    orrmi reg_f, #FLAG_NEG
+    lsr reg_x, #24
+    mov r0, #4
+    b instr_end
+// PLY
+_7a:
+    bic reg_f, #(FLAG_ZERO+FLAG_NEG)
+    pop reg_y
+    movs reg_y, reg_y, lsl #24
+    orreq reg_f, #FLAG_ZERO
+    orrmi reg_f, #FLAG_NEG
+    lsr reg_y, #24
+    mov r0, #4
+    b instr_end
+// TSB
+_04:
+    adr_zp_z
+    ldr r1, =mainram
+    ldrb r2, [r1, r0]
+    op_txb 1, r2
+    strb r2, [r1, r0]
+    mov r0, #5
+    b instr_end
+_0c:
+    adr_abs_z
+    mov r4, r0
+    bl readb
+    op_txb 1, r0
+    mov r1, r0
+    mov r0, r4
+    bl writeb
+    mov r0, #6
+    b instr_end
+// INC
+_1a:
+    op_inc reg_a
+    mov r0, #2
+    b instr_end
+// DEC
+_3a:
+    op_dec reg_a
+    mov r0, #2
+    b instr_end
+// STZ
+_64:
+    adr_zp_z
+    ldr r1, =mainram
+    mov r2, #0
+    strb r2, [r1, r0]
+    mov r0, #3
+    b instr_end
+_74:
+    adr_zp reg_x
+    ldr r1, =mainram
+    mov r2, #0
+    strb r2, [r1, r0]
+    mov r0, #3
+    b instr_end
+_9c:
+    adr_abs_z
+    mov r1, #0
+    bl writeb
+    mov r0, #4
+    b instr_end
+_9e:
+    adr_abs reg_x
+    mov r1, #0
+    bl writeb
+    mov r0, #4
+    b instr_end
+// BRA
+_80:
+    adr_rel
+    mov r0, #3
+    b instr_end
+_07:
+_b7:
+_fc:
+_f7:
+_c7:
+_93:
+    b _xx
+#endif
   
 // http://emu-docs.org/CPU%2065xx/undocop.txt
 
@@ -1455,13 +1664,16 @@ _xx:
     bic r2, #1
     str r2, [r3]
 #endif
-    mov r1, r0
+    unbase_pc reg_pc
+    lsr reg_f, #24
+    stmfd sp!, {r0,reg_f,reg_sp,reg_pc}
     ldr r0, =unhandled_msg
-    mov r2, reg_a
-    mov r3, reg_x
-    stmfd sp!, {reg_y,reg_sp,reg_pc}
+    mov r1, reg_a
+    mov r2, reg_x
+    mov r3, reg_y
     bl iprintf
-k:  b k
+hang:
+    b hang
 
 // int cpu_run_1 (int cycles_to_do)
 cpu_run:
@@ -1473,39 +1685,38 @@ cpu_run:
     mov cycles, r0
 loop:  
     fetch
-#if 0
-    unbase_pc reg_pc
-    mov r3, reg_pc, lsr #12
-    cmp r3, #0xf
-    beq e
-    stmfd sp!, {reg_pc,r0}
+#ifdef PRINT_TRACE
+    unbase_pc reg_pc 
+    lsr reg_f, #24
+    stmfd sp!, {r0,reg_f,reg_sp,reg_pc}
         ldr r0, =debug_msg
         mov r1, reg_a
         mov r2, reg_x
         mov r3, reg_y
         bl iprintf
-    ldmfd sp!, {reg_pc,r0}
-e:  rebase_pc reg_pc
+    ldmfd sp!, {r0,reg_f,reg_sp,reg_pc}
+    lsl reg_f, #24
+1:  rebase_pc reg_pc
 #endif
     ldr pc, [pc, r0, lsl #2]
     nop
 op_tab:
-    .word _00,_01,_xx,_xx,_04,_05,_06,_07,_08,_09,_0a,_xx,_xx,_0d,_0e,_xx
-    .word _10,_11,_xx,_xx,_xx,_15,_16,_xx,_18,_19,_xx,_xx,_xx,_1d,_1e,_xx
+    .word _00,_01,_xx,_xx,_04,_05,_06,_07,_08,_09,_0a,_xx,_0c,_0d,_0e,_xx
+    .word _10,_11,_xx,_xx,_xx,_15,_16,_xx,_18,_19,_1a,_xx,_xx,_1d,_1e,_xx
     .word _20,_21,_xx,_xx,_24,_25,_26,_xx,_28,_29,_2a,_xx,_2c,_2d,_2e,_xx
-    .word _30,_31,_xx,_xx,_xx,_35,_36,_xx,_38,_39,_xx,_xx,_xx,_3d,_3e,_xx
+    .word _30,_31,_xx,_xx,_xx,_35,_36,_xx,_38,_39,_3a,_xx,_3c,_3d,_3e,_xx
     .word _40,_41,_xx,_xx,_xx,_45,_46,_xx,_48,_49,_4a,_xx,_4c,_4d,_4e,_xx
-    .word _50,_51,_xx,_xx,_xx,_55,_56,_xx,_58,_59,_xx,_xx,_xx,_5d,_5e,_xx
-    .word _60,_61,_xx,_xx,_xx,_65,_66,_xx,_68,_69,_6a,_xx,_6c,_6d,_6e,_xx
-    .word _70,_71,_xx,_xx,_xx,_75,_76,_xx,_78,_79,_7a,_xx,_xx,_7d,_7e,_xx
-    .word _xx,_81,_xx,_xx,_84,_85,_86,_xx,_88,_xx,_8a,_xx,_8c,_8d,_8e,_xx
-    .word _90,_91,_xx,_xx,_94,_95,_96,_xx,_98,_99,_9a,_xx,_xx,_9d,_xx,_xx
+    .word _50,_51,_xx,_xx,_xx,_55,_56,_xx,_58,_59,_5a,_xx,_xx,_5d,_5e,_xx
+    .word _60,_61,_xx,_xx,_64,_65,_66,_xx,_68,_69,_6a,_xx,_6c,_6d,_6e,_xx
+    .word _70,_71,_xx,_xx,_74,_75,_76,_xx,_78,_79,_7a,_xx,_xx,_7d,_7e,_xx
+    .word _80,_81,_xx,_xx,_84,_85,_86,_xx,_88,_89,_8a,_xx,_8c,_8d,_8e,_xx
+    .word _90,_91,_xx,_93,_94,_95,_96,_xx,_98,_99,_9a,_xx,_9c,_9d,_9e,_xx
     .word _a0,_a1,_a2,_xx,_a4,_a5,_a6,_xx,_a8,_a9,_aa,_xx,_ac,_ad,_ae,_xx
     .word _b0,_b1,_xx,_xx,_b4,_b5,_b6,_b7,_b8,_b9,_ba,_xx,_bc,_bd,_be,_xx
-    .word _c0,_c1,_xx,_xx,_c4,_c5,_c6,_xx,_c8,_c9,_ca,_xx,_cc,_cd,_ce,_xx
-    .word _d0,_d1,_xx,_xx,_xx,_d5,_d6,_xx,_d8,_d9,_xx,_xx,_xx,_dd,_de,_xx
+    .word _c0,_c1,_xx,_xx,_c4,_c5,_c6,_c7,_c8,_c9,_ca,_xx,_cc,_cd,_ce,_xx
+    .word _d0,_d1,_xx,_xx,_xx,_d5,_d6,_xx,_d8,_d9,_da,_xx,_xx,_dd,_de,_xx
     .word _e0,_e1,_xx,_xx,_e4,_e5,_e6,_xx,_e8,_e9,_ea,_xx,_ec,_ed,_ee,_xx
-    .word _f0,_f1,_xx,_xx,_xx,_f5,_f6,_xx,_f8,_f9,_xx,_xx,_fc,_fd,_fe,_xx
+    .word _f0,_f1,_xx,_xx,_xx,_f5,_f6,_f7,_f8,_f9,_fa,_xx,_fc,_fd,_fe,_xx
 instr_end:
     subs cycles, r0
     bpl loop
@@ -1521,16 +1732,15 @@ cpu_reset:
     stmfd sp!, {r4-r6, lr}
     ldr r4, =0xfffd
     mov r0, r4
-	bl readb
+    bl readb
     mov r5, r0, lsl #8
     sub r0, r4, #1
-	bl readb
+    bl readb
     orr r0, r5
     ldr r6, =cpu_regs
     mov r5, r0          // r5 = pc
     mov r4, #0xfd       // r4 = sp
     rebase_pc r5
-    rebase_sp r4
     mov r0, #0          // r0 = f
     mov r1, #0          // r1 = y
     mov r2, #0          // r2 = x
@@ -1544,8 +1754,12 @@ cpu_regs:
 last_page:
     .word 0
 
+.section .rodata
 unhandled_msg: 
-    .ascii "Unhandled op\n"
+    .ascii "- Unhandled op!\n"
 debug_msg:
-    .ascii "A%02x X%02x Y%02x P%04x OP %02x\n"
+    .ascii "A%02x X%02x Y%02x OP%02x F%02x SP%02x P%04x\n"
+    .byte 0
+idle_loop_msg:
+    .ascii "Idle %04x\n"
     .byte 0

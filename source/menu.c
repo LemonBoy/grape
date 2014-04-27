@@ -75,18 +75,18 @@ void menu_print_page (const page_t *page, int *opts)
         if (sel_entry->opts_no) {
             if (keys&KEY_LEFT && opts[cur] > 0) {
                 opts[cur]--;
-                if (sel_entry->cb) sel_entry->cb(opts[cur]);
+                /*if (sel_entry->cb) sel_entry->cb(opts[cur]);*/
             }
             if (keys&KEY_RIGHT && opts[cur] < sel_entry->opts_no - 1) {
                 opts[cur]++;
-                if (sel_entry->cb) sel_entry->cb(opts[cur]);
+                /*if (sel_entry->cb) sel_entry->cb(opts[cur]);*/
             }
         }
 
         if (keys&KEY_A) {
             if (sel_entry->cb)
-                sel_entry->cb(opts[cur]); // TODO : Handle errors
-            return;
+                if (sel_entry->cb(opts[cur]))
+                    return;
         }
 
         // Use keysDown to avoid bouncing
@@ -95,6 +95,12 @@ void menu_print_page (const page_t *page, int *opts)
 
         swiWaitForVBlank();
     }
+}
+
+void print_msg (const char *msg)
+{
+    iprintf("\n-- %s\n", msg);
+    swiDelay(10000000);
 }
 
 void pause_menu () { menu_print_page(&paused_pg, (int *)&paused_pg_opt); }

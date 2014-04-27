@@ -9,7 +9,6 @@ void irq_vblank ()
     if (vblanks++ == 60) {
         consoleClear();
         iprintf("FPS %i\n", frames_done);
-        // iprintf("keybd_latch : %02x\n", keybd_latch);
         frames_done = 0;
         vblanks = 0;
     }
@@ -27,6 +26,7 @@ int valid_rom_crc (const u16 crc)
     const u16 known_crcs[] = {
         0xAC8F, // 12288 BASIC.ROM 
         0x3F44, // 12288 apple.rom
+        0x9CB5, // 12288 A2ROM.BIN
     };
     int i;
 
@@ -42,14 +42,15 @@ void emu_init ()
     u16 crc;
     int valid_crc;
 
-    keyboardShow();
+    keysSetRepeat(30, 10);
+    /*keyboardShow();*/
 
     // Set some sane defaults
-    emu_vsync = 1;
+    emu_vsync = 0;
 
     // Setup the video hardware
     video_init();
-
+#if 1
     // Load the appropriate bios
     if (load_bin("BASIC.ROM", 0xD000, 0x3000, &crc)) {
         valid_crc = valid_rom_crc(crc);
@@ -64,6 +65,16 @@ void emu_init ()
 
     // Load the disk rom in place
     load_buf(disk_rom, 0xc600, 0x100);
+#else
+    if (load_bin("6502_functional_test.bin", 0x0, -1, NULL) > 0) {
+        const u16 reset_patch = 0x0400;
+        iprintf("Test rom loaded\n");
+        iprintf("PC : %04x\n", mainram[0xFFFD]<<8|mainram[0xFFFC]);
+        iprintf("Routing the reset vector to %04x\n", reset_patch);
+        mainram[0xFFFC] = reset_patch&0xFF;
+        mainram[0xFFFD] = (reset_patch>>8)&0xFF;
+    }
+#endif
 
     basename = NULL;
 

@@ -16,8 +16,8 @@ u8 readb (u16 addr);
 void writeb (u16 addr, u8 val);
 void mem_reset (void);
 
-int load_bin (char *file, u16 addr, u16 len, u16 *crc);
-int load_buf (const u8 *buf, u16 addr, u16 len);
+ssize_t load_bin (const char *file, const u32 addr, ssize_t len, u16 *crc);
+ssize_t load_buf (const u8 *buf, const u32 addr, ssize_t len);
 
 
 #endif
