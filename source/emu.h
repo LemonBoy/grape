@@ -13,8 +13,10 @@
 
 int emu_vsync;
 int emu_input;
+int emu_screen;
+int emu_scale;
 
-static char *basename;
+static char *basename = NULL;
 
 void emu_init ();
 void emu_run ();

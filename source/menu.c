@@ -6,6 +6,7 @@ typedef struct entry_t {
     const char *label;
     const int opts_no;
     const char *opts[10];
+    int *opt_ptr;
     int (*cb)(int);
 } entry_t;
 
@@ -15,31 +16,53 @@ typedef struct page_t {
     const entry_t *entries;
 } page_t;
 
-#define OPT(n) int opt_##n (int sel) { emu_##n = sel; return 1; }
-
-OPT(vsync);
-OPT(input);
-
-int opt_screen (int sel)
+static int opt_screen (const int sel)
 {
+    emu_screen = sel;
     (sel) ? lcdMainOnBottom() : lcdMainOnTop();
     return 1;
 }
 
+static int opt_vsync (const int sel)
+{
+    emu_vsync = sel;
+    return 1;
+}
+
+static int opt_scale (const int sel)
+{
+    emu_scale = sel;
+    video_set_scale(emu_scale);
+    return 1;
+}
+
+static int opt_input (const int sel)
+{
+    emu_input = sel;
+    return 1;
+}
+
+static int opt_exit (const int sel)
+{
+    exit(0);
+    return 1;
+}
+
+static int sel_slot_l = 0, sel_slot_s = 0;
+
 const static struct page_t paused_pg = { 
     "Paused", 7, (const entry_t []){ 
-        { "Vsync", 2, { "No", "Yes" }, opt_vsync },
-        { "Scale", 2, { "No", "Yes" }, video_set_scale },
-        { "Screen", 2, { "Top", "Bottom" }, opt_screen },
-        { "Map keys to", 2, { "joystick", "keyboard" }, opt_input },
-        { "Save state", 9, { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, state_save },
-        { "Load state", 9, { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, state_load },
-        { "Exit", 0, { }, exit },
+        { "Vsync", 2, { "No", "Yes" }, &emu_vsync, opt_vsync },
+        { "Scale", 2, { "No", "Yes" }, &emu_scale, opt_scale },
+        { "Screen", 2, { "Top", "Bottom" }, &emu_screen, opt_screen },
+        { "Map keys to", 2, { "joystick", "keyboard" }, &emu_input, opt_input },
+        { "Save state", 9, { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, &sel_slot_s, state_save },
+        { "Load state", 9, { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, &sel_slot_l, state_load },
+        { "Exit", 0, { }, NULL, opt_exit },
     }
 };
-static int paused_pg_opt[6] = { 1, 0, 0, 0, 0, 0 };
 
-void menu_print_page (const page_t *page, int *opts) 
+void menu_print_page (const page_t *page) 
 {
     int i;
     int cur;
@@ -56,7 +79,7 @@ void menu_print_page (const page_t *page, int *opts)
         for (i = 0; i < page->entries_no; i++) {
             const entry_t *entry = &page->entries[i];
             iprintf("%c %s %s\n", (i == cur) ? '>' : ' ', entry->label, 
-                    (entry->opts_no) ? entry->opts[opts[i]] : "");
+                    (entry->opts_no) ? entry->opts[*entry->opt_ptr] : "");
         }
 
         scanKeys();
@@ -73,25 +96,18 @@ void menu_print_page (const page_t *page, int *opts)
                 cur = 0;
         }
         if (sel_entry->opts_no) {
-            if (keys&KEY_LEFT && opts[cur] > 0) {
-                opts[cur]--;
-                /*if (sel_entry->cb) sel_entry->cb(opts[cur]);*/
-            }
-            if (keys&KEY_RIGHT && opts[cur] < sel_entry->opts_no - 1) {
-                opts[cur]++;
-                /*if (sel_entry->cb) sel_entry->cb(opts[cur]);*/
-            }
+            if (keys&KEY_LEFT && *sel_entry->opt_ptr > 0)
+                (*sel_entry->opt_ptr)--;
+            if (keys&KEY_RIGHT && *sel_entry->opt_ptr < sel_entry->opts_no - 1)
+                (*sel_entry->opt_ptr)++;
         }
 
-        if (keys&KEY_A) {
-            if (sel_entry->cb)
-                if (sel_entry->cb(opts[cur]))
-                    return;
+        if (keys&(KEY_TOUCH|KEY_START|KEY_A)) {
+            if (sel_entry->cb && sel_entry->cb(*sel_entry->opt_ptr))
+                return;
+            if (!(keys&KEY_A))
+                return;
         }
-
-        // Use keysDown to avoid bouncing
-        if (keysDown()&KEY_START)
-            return;
 
         swiWaitForVBlank();
     }
@@ -103,4 +119,4 @@ void print_msg (const char *msg)
     swiDelay(10000000);
 }
 
-void pause_menu () { menu_print_page(&paused_pg, (int *)&paused_pg_opt); }
+void pause_menu () { menu_print_page(&paused_pg); }

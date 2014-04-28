@@ -21,6 +21,7 @@ reg_y   .req r7
 reg_f   .req r6
 cycles  .req r5
 
+// XXX rebase the pc on page cross
 .macro fetch 
     ldrb r0, [reg_pc], #1
 .endm
@@ -134,19 +135,11 @@ cycles  .req r5
     ldrsb r0, [reg_pc], #1
 #ifdef CHECK_IDLE_JUMP
     cmp r0, #-2
-    bne 2f
-//    unbase_pc reg_pc
-//    ldr r0, =idle_loop_msg
-//    mov r1, reg_pc
-//    bl iprintf
+    bne 1f
     b _xx
 #endif
-2:  // Sign extend
-    add r2, reg_pc, r0
-    eor r1, r2, reg_pc
-    tst r1, #0x100
-    subne cycles, #2
-    add reg_pc, r0
+    // XXX two cycle penality for page crossing
+1:  add reg_pc, r0
 .endm
 
 #define FLAG_CARRY  0x01<<24

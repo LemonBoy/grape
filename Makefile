@@ -25,10 +25,9 @@ NITRODATA	:=  fs
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-ARCH	:= -marm -mthumb-interwork -march=armv5te -mtune=arm946e-s
+ARCH	:= -marm -mno-thumb-interwork -march=armv5te -mtune=arm946e-s
 
 CFLAGS	:= -save-temps \
-		 -funroll-loops -ftree-vectorize \
 		-Wall -Ofast\
  		-fomit-frame-pointer\
 		-ffast-math \

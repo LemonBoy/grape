@@ -27,7 +27,7 @@ int main(int argc, char **argv)
         /*load_disk("PACMAN.DSK");*/
         /*load_disk("Karateka (1984)(Broderbund).dsk");*/
         // Awesome!
-        /*load_disk("lode.dsk");*/
+        load_disk("lode.dsk");
         // AppleII+
         /*load_disk("Prince of Persia (1989)(Broderbund)(Disk 1 of 3)[cr].dsk");*/
         // Gfx heavy
@@ -44,7 +44,7 @@ int main(int argc, char **argv)
         /*load_disk("Fracas (1980)(Quality Software).dsk");*/
         /*load_disk("Colorix.dsk");*/
         /*load_disk("LoRes Games.DSK");*/
-        load_disk("LoRes Hijinks.DSK");
+        /*load_disk("LoRes Hijinks.DSK");*/
         // SP Crash
         /*load_disk("Apple II Business Graphics 1.0 (1981).nib");*/
     } else {

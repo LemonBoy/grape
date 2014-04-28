@@ -46,7 +46,7 @@ void emu_init ()
     keyboardShow();
 
     // Set some sane defaults
-    emu_vsync = 0;
+    emu_vsync = 1;
 
     // Setup the video hardware
     video_init();
