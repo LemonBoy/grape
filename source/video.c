@@ -73,6 +73,8 @@ static int mixed_mode;
 static int sel_page;
 static int hires;
 
+static void (* draw_hires_line)(u16 *, u8 *);
+
 // The mixed mode can be enabled only if graphic mode is set
 #define render_mixed_mode (mixed_mode&(!text_mode))
 
@@ -185,94 +187,86 @@ void draw_lores_scr (u16 *__restrict map)
     }
 }
 
-void draw_hires_scr (u16 *map) ITCM_CODE;
-#if 0
 /*odd_color  = (b1&0x80) ? 6 : 3;*/
 /*even_color = (b1&0x80) ? 9 :  12;*/
-void draw_hires_scr (u16 *__restrict map)
+
+static void draw_hires_line_mono (u16 *__restrict map, u8 *__restrict ptr) ITCM_CODE;
+static void draw_hires_line_mono (u16 *__restrict map, u8 *__restrict ptr)
 {
-    int last_line;
-    int i, j, k;
-    u8 *__restrict ptr, tmp;
-    static u8 tmp_line[0x200];
-    static const u8 color_lut[] DTCM_DATA = { 0, 12,  0, 15, 0,  9,  0, 15, 0,  3,  0, 15, 0,  6,  0, 15 };
-
-    last_line = render_mixed_mode ? 168 : 192;
-
-    for (i = 0; i < last_line; i++, map += 0x100) {
-        if (!page_dirty[8 + (i&7)])
-            continue;
-
-        ptr = mainram + (sel_page << 13) + ((i&7) * 0x400) + video_addr[i>>3];
-
-        for (j = 0, tmp = 0; j < 280; j += 7) {
-            const u8 b1 = *ptr++;
-
-            tmp = (b1&0x7f) << 1 | tmp;
-
-            // embb
-            // e = even / odd
-            // m = msb
-            // b = data
-            for (k = 0; k <= 7; k++)
-                tmp_line[j+k] = color_lut[(((j+k)&1) ? 0x8 : 0x0) + ((b1&0x80)>>5) + ((tmp>>k)&3)];
-
-            tmp >>= 7;
-        }
-
-        DC_FlushRange(tmp_line, sizeof(tmp_line));
-        dmaCopyAsynch(tmp_line, map, sizeof(tmp_line));
-        DC_InvalidateRange(map, sizeof(tmp_line));
+    const u16 lut[] = {0x0000, 0x000c, 0x0c00, 0x0c0c};
+    int j;
+    for (j = 0; j < 280/14; j++) {
+        u16 tmp = (ptr[0]&0x7f) | ((ptr[1]&0x7f) << 7);
+        ptr += 2;
+        *map++ = lut[tmp&3]; tmp >>= 2;
+        *map++ = lut[tmp&3]; tmp >>= 2;
+        *map++ = lut[tmp&3]; tmp >>= 2;
+        *map++ = lut[tmp&3]; tmp >>= 2;
+        *map++ = lut[tmp&3]; tmp >>= 2;
+        *map++ = lut[tmp&3]; tmp >>= 2;
+        *map++ = lut[tmp&3]; 
     }
-
 }
-#else
-void draw_hires_scr (u16 *__restrict map)
+
+static void draw_hires_line_color (u16 *__restrict map, u8 *__restrict ptr) ITCM_CODE;
+static void draw_hires_line_color (u16 *__restrict map, u8 *__restrict ptr)
 {
-    int last_line;
-    int i, j, k, x;
-    u8 *__restrict xptr, *__restrict ptr, tmp;
+    static u8 tmp_line[280];
+    static const u8 color_lut[] DTCM_DATA = { 
+        0, 12,  0, 15, 0,  9,  0, 15, 0,  3,  0, 15, 0,  6,  0, 15 
+    };
+    int j, k;
+    u16 tmp;
+
+    for (j = 0, tmp = 0; j < 280; j += 7) {
+        const u8 b1 = *ptr++;
+
+        tmp = (b1&0x7f) << 1 | tmp;
+        const u8 *__restrict lut_b = color_lut + ((b1&0x80)>>5);
+
+        for (k = 0; k < 7; k+=2)
+        {
+            tmp_line[j+k+0] = lut_b[((j&1) << 3) + (tmp&3)];
+            tmp >>=  1;
+            if(k == 6)
+                break;
+            tmp_line[j+k+1] = lut_b[((~j&1) << 3) + (tmp&3)];
+            tmp >>= 1;
+        }
+    }
+    DC_FlushRange(tmp_line, sizeof(tmp_line));
+    dmaCopyAsynch(tmp_line, map, sizeof(tmp_line));
+    DC_InvalidateRange(map, sizeof(tmp_line));
+}
+
+
+static void draw_hires_scr (u16 *map) ITCM_CODE;
+static void draw_hires_scr (u16 *__restrict map)
+{
+    int i, x, last_line;
+    u8 *__restrict xptr, *__restrict ptr;
     u16 *__restrict omap;
-    static u8 tmp_line[0x200];
-    static const u8 color_lut[] DTCM_DATA = { 0, 12,  0, 15, 0,  9,  0, 15, 0,  3,  0, 15, 0,  6,  0, 15 };
 
     last_line = render_mixed_mode ? 168/8 : 192/8;
 
     for(x = 0; x < 8; x++, map += 0x100) {
-        if (!page_dirty[8+x])
+        if (!page_dirty[(sel_page<<3)+x])
             continue;
+
         xptr = mainram + (sel_page << 13) + (x << 10);
 
         for(omap = map, i = 0; i < last_line; i++, omap += 0x800) {
             ptr = xptr + video_addr[i];
 
-            for (j = 0, tmp = 0; j < 280; j += 7) {
-                const u8 b1 = *ptr++;
+            draw_hires_line(omap, ptr);
 
-                tmp = (b1&0x7f) << 1 | tmp;
-                const u8 *__restrict lut_b = color_lut + ((b1&0x80)>>5);
-
-                for (k = 0; k < 7; k+=2)
-                {
-                    tmp_line[j+k+0] = lut_b[((j&1) << 3) + (tmp&3)];
-                    tmp >>=  1;
-                    if(k == 6)
-                        break;
-                    tmp_line[j+k+1] = lut_b[((~j&1) << 3) + (tmp&3)];
-                    tmp >>= 1;
-                }
-            }
-            DC_FlushRange(tmp_line, sizeof(tmp_line));
-            dmaCopyAsynch(tmp_line, omap, sizeof(tmp_line));
-            DC_InvalidateRange(omap, sizeof(tmp_line));
         }
-        page_dirty[8+x] = 0;
+        page_dirty[(sel_page<<3)+x] = 0;
     }
 }
-#endif
 
 void draw_text_scr (u16 *map) ITCM_CODE;
-void draw_text_scr (u16 *map)
+void draw_text_scr (u16 *__restrict map)
 {
     int start_line;
     int i, j;
@@ -317,6 +311,19 @@ void video_draw ()
     // Clear this here otherwise we won't be able to render a lores
     // screen after the text one
     page_dirty[sel_page] = 0;
+}
+
+void video_set_hires (int renderer)
+{
+    switch (renderer) {
+        default:
+        case 0:
+            draw_hires_line = draw_hires_line_mono;
+            break;
+        case 1:
+            draw_hires_line = draw_hires_line_color;
+            break;
+    }
 }
 
 int video_set_scale (int mode)
@@ -365,6 +372,8 @@ void video_init ()
     WIN_IN = 0x8;
     // BG2 outside
     WIN_OUT = 0x4;
+
+    video_set_hires(-1);
 
     memcpy(BG_PALETTE, palette, sizeof(palette));
 

@@ -48,13 +48,19 @@ static int opt_exit (const int sel)
     return 1;
 }
 
-static int sel_slot_l = 0, sel_slot_s = 0;
+static int opt_hires (const int sel)
+{
+    video_set_hires(sel);
+}
+
+static int sel_slot_l = 0, sel_slot_s = 0, sel_hires = 0;
 
 const static struct page_t paused_pg = { 
-    "Paused", 7, (const entry_t []){ 
+    "Paused", 8, (const entry_t []){ 
         { "Vsync", 2, { "No", "Yes" }, &emu_vsync, opt_vsync },
         { "Scale", 2, { "No", "Yes" }, &emu_scale, opt_scale },
         { "Screen", 2, { "Top", "Bottom" }, &emu_screen, opt_screen },
+        { "Hires mode", 2, { "B/W", "Color" }, &sel_hires, opt_hires },
         { "Map keys to", 2, { "joystick", "keyboard" }, &emu_input, opt_input },
         { "Save state", 9, { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, &sel_slot_s, state_save },
         { "Load state", 9, { "1", "2", "3", "4", "5", "6", "7", "8", "9" }, &sel_slot_l, state_load },
@@ -66,7 +72,7 @@ void menu_print_page (const page_t *page)
 {
     int i;
     int cur;
-    int keys;
+    u32 keys, keys_;
 
     cur = 0;
 
@@ -83,31 +89,33 @@ void menu_print_page (const page_t *page)
         }
 
         scanKeys();
-        keys = keysDownRepeat();
+        keys  = keysDown();
+        keys_ = keysDownRepeat();
 
-        if (keys&KEY_UP) { 
+        if (keys_&KEY_UP) { 
             cur--;
             if (cur < 0)
                 cur = page->entries_no - 1;
         }
-        if (keys&KEY_DOWN) {
+        if (keys_&KEY_DOWN) {
             cur++;
             if (cur == page->entries_no)
                 cur = 0;
         }
         if (sel_entry->opts_no) {
-            if (keys&KEY_LEFT && *sel_entry->opt_ptr > 0)
+            if (keys_&KEY_LEFT && *sel_entry->opt_ptr > 0)
                 (*sel_entry->opt_ptr)--;
-            if (keys&KEY_RIGHT && *sel_entry->opt_ptr < sel_entry->opts_no - 1)
+            if (keys_&KEY_RIGHT && *sel_entry->opt_ptr < sel_entry->opts_no - 1)
                 (*sel_entry->opt_ptr)++;
         }
 
-        if (keys&(KEY_TOUCH|KEY_START|KEY_A)) {
+        if (keys&KEY_A) {
             if (sel_entry->cb && sel_entry->cb(*sel_entry->opt_ptr))
                 return;
-            if (!(keys&KEY_A))
-                return;
         }
+
+        if (keys&KEY_START) 
+            return;
 
         swiWaitForVBlank();
     }

@@ -12,13 +12,18 @@ int main(int argc, char **argv)
     consoleDemoInit();
     keyboardDemoInit();
 
-    fatInitDefault();
+#ifdef EMU_BUILD
     nitroFSInit(NULL);
+#else
+    fatInitDefault();
+#endif
 
     soundEnable();
 
     iprintf("-- grape\n");
     
+    keysSetRepeat(30, 10);
+
     emu_init();
 
     if (argc != 2) {
@@ -27,7 +32,7 @@ int main(int argc, char **argv)
         /*load_disk("PACMAN.DSK");*/
         /*load_disk("Karateka (1984)(Broderbund).dsk");*/
         // Awesome!
-        load_disk("lode.dsk");
+        /*load_disk("lode.dsk");*/
         // AppleII+
         /*load_disk("Prince of Persia (1989)(Broderbund)(Disk 1 of 3)[cr].dsk");*/
         // Gfx heavy
@@ -37,7 +42,7 @@ int main(int argc, char **argv)
         /*load_disk("Round About (1983)(Datamost).dsk");*/
         /*load_disk("Bug Attack (1981)(Cavalier Computer).dsk");*/
         // Scroller
-        /*load_disk("TetrisII.DSK");*/
+        load_disk("TetrisII.DSK");
         // Mixed mode
         /*load_disk("tetris48k.nib");*/
         // Lowres

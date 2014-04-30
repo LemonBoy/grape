@@ -8,6 +8,8 @@ endif
 
 include $(DEVKITARM)/ds_rules
 
+EMU_BUILD=0
+
 #---------------------------------------------------------------------------------
 # TARGET is the name of the output
 # BUILD is the directory where object files & intermediate files will be placed
@@ -20,7 +22,6 @@ BUILD		:=	build
 SOURCES		:=	source 
 DATA		:=
 INCLUDES	:=	include
-NITRODATA	:=  fs	
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -34,7 +35,7 @@ CFLAGS	:= -save-temps \
 		$(ARCH)
 		#-finstrument-functions -mpoke-function-name \
 
-CFLAGS	+=	$(INCLUDE) -DARM9 -DEMU_BUILD 
+CFLAGS	+=	$(INCLUDE) -DARM9
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions
 
 ASFLAGS	:=	$(ARCH)
@@ -43,14 +44,21 @@ LDFLAGS	=	-specs=ds_arm9.specs $(ARCH) -Wl,-Map,$(notdir $*.map)
 #---------------------------------------------------------------------------------
 # any extra libraries we wish to link with the project (order is important)
 #---------------------------------------------------------------------------------
-LIBS	:= 	-lfilesystem -lfat -lnds9
- 
+LIBS	:= 	-lfat -lnds9
  
 #---------------------------------------------------------------------------------
 # list of directories containing libraries, this must be the top level containing
 # include and lib
 #---------------------------------------------------------------------------------
 LIBDIRS	:=	$(LIBNDS)
+
+ifeq ($(strip $(EMU_BUILD)),1)
+	NITRODATA := fs
+	CFLAGS += -DEMU_BUILD
+	LIBS := -lfilesystem $(LIBS)
+else
+	CFLAGS += -DHW_BUILD
+endif
  
 #---------------------------------------------------------------------------------
 # no real need to edit anything past this point unless you need to add additional

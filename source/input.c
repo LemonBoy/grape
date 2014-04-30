@@ -22,11 +22,10 @@ void update_input ()
     u32 keys;
     int kbd_key;
 
-    scanKeys();
-    keys = (keysDownRepeat()|keysDown())&0xfff;
+    keys = keysDown() | keysHeld();
 
     // Send keyboard scancodes when a key is pressed
-    if (emu_input == INPUT_KBD && keys) {
+    if (emu_input == INPUT_KBD && (keys&0xfff)) {
         int bit_set = __builtin_ffs(keys);
         if (bit_set)
             keybd_latch = 0x80 ^ key_map[bit_set-1];

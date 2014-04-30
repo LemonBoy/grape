@@ -42,7 +42,6 @@ void emu_init ()
     u16 crc;
     int valid_crc;
 
-    keysSetRepeat(30, 10);
     keyboardShow();
 
     // Set some sane defaults
@@ -51,6 +50,7 @@ void emu_init ()
     // Setup the video hardware
     video_init();
 #if 1
+    crc = 0xffff;
     // Load the appropriate bios
     if (load_bin("BASIC.ROM", 0xD000, 0x3000, &crc)) {
         valid_crc = valid_rom_crc(crc);
@@ -94,6 +94,8 @@ void emu_run ()
         cpu_run(17030);
 
         video_draw();
+
+        scanKeys();
 
         update_input();
         frames_done++;
