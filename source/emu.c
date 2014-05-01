@@ -99,11 +99,8 @@ void emu_run ()
         update_input();
         frames_done++;
 
-        if (keysDown()&KEY_START) {
-            irqDisable(IRQ_VBLANK);
+        if (keysDown()&KEY_START)
             pause_menu(); 
-            irqEnable(IRQ_VBLANK);
-        }
 
         sound_play();
 
