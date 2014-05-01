@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <nds.h>
+#include "emu.h"
 #include "mem.h"
 
 const u8 apple_font[] = {
@@ -240,6 +241,73 @@ static void draw_hires_line_color (u16 *__restrict map, u8 *__restrict ptr)
 }
 
 
+static void draw_hires_line_color_ (u16 *__restrict map, u8 *__restrict ptr) ITCM_CODE;
+static void draw_hires_line_color_ (u16 *__restrict map, u8 *__restrict ptr)
+{
+    static const u8 lut[]={
+        // even
+            // msb low
+            0, 0, 3, 15,
+            0, 12, 15, 15,
+            // msb high
+            0, 0, 6, 15,
+            0, 9, 15, 15,
+        // odd
+            // msb low
+            0, 0, 12, 15,
+            0, 3, 15, 15,
+            // msb high
+            0, 0, 9, 15,
+            0, 6, 15, 15
+    };
+    int j, k;
+    u16 window, msb;
+
+    // Three-bit sliding window
+    // Based off infos from
+    // http://www.kreativekorp.com/miscpages/a2info/stdhires.shtml
+    for (window = j = 0; j < 280/14; j++) {
+        const u8 b1 = *ptr++;
+        const u8 b2 = *ptr++;
+        const u8 b3 = *ptr;
+
+        window |= (b3&1)<<15 | (b2&0x7f)<<8 | (b1&0x7f)<<1;
+
+        // Replicate the msb of b1 and b2 7 times
+        asm volatile (
+                "mov    %0,#0;"
+                "tst    %1,#0x80;"
+                "movne  %0,#0x7f;"
+                "tst    %2,#0x80;"
+                "orrne  %0,#(0x7f<<7);"
+            : "=&r"(msb)
+            : "r"(b1), "r"(b2)
+            :
+        );
+
+        for (k = 0; k < 7; k++) {
+            asm volatile (
+                    "movs    %1,%1,lsr #1;"
+                    "and     r1,%2,#7;"
+                    "addcs   r1,#8;"
+                    "lsr     %2,#1;"
+                    "ldrb    r0,[%3,r1];"
+                    "movs    %1,%1,lsr #1;"
+                    "and     r1,%2,#7;"
+                    "add     r1,#16;"
+                    "addcs   r1,#8;"
+                    "lsr     %2,#1;"
+                    "ldrb    r2,[%3,r1];"
+                    "orr     r0, r2, lsl #8;"
+                    "strh    r0,[%0],#2;"
+                : "+r"(map) 
+                : "r"(msb), "r"(window), "r"(lut) 
+                : "r0", "r1", "r2"
+            );
+        }
+    }
+}
+
 static void draw_hires_scr (u16 *map) ITCM_CODE;
 static void draw_hires_scr (u16 *__restrict map)
 {
@@ -323,6 +391,9 @@ void video_set_hires (int renderer)
         case 1:
             draw_hires_line = draw_hires_line_color;
             break;
+        case 2:
+            draw_hires_line = draw_hires_line_color_;
+            break;
     }
 }
 
@@ -373,12 +444,12 @@ void video_init ()
     // BG2 outside
     WIN_OUT = 0x4;
 
-    video_set_hires(-1);
+    video_set_hires(emu_hires);
 
     memcpy(BG_PALETTE, palette, sizeof(palette));
 
     struct UnpackStruct unpack_bit;
-    unpack_bit.dataOffset = 14;
+    unpack_bit.dataOffset = 11;
     unpack_bit.destWidth = 8;
     unpack_bit.sourceSize = 64*8;
     unpack_bit.sourceWidth = 1;

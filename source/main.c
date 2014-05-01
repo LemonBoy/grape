@@ -42,7 +42,7 @@ int main(int argc, char **argv)
         /*load_disk("Round About (1983)(Datamost).dsk");*/
         /*load_disk("Bug Attack (1981)(Cavalier Computer).dsk");*/
         // Scroller
-        load_disk("TetrisII.DSK");
+        /*load_disk("TetrisII.DSK");*/
         // Mixed mode
         /*load_disk("tetris48k.nib");*/
         // Lowres
@@ -53,7 +53,11 @@ int main(int argc, char **argv)
         // SP Crash
         /*load_disk("Apple II Business Graphics 1.0 (1981).nib");*/
     } else {
-        load_disk(argv[1]);
+        if (!load_disk(argv[1])) {
+            print_msg("Cannot open the selected rom!");
+            exit(0);
+        }
+        basename = argv[1];
     }
 
     emu_run();

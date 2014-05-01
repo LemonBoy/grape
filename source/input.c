@@ -25,13 +25,13 @@ void update_input ()
     keys = keysDown() | keysHeld();
 
     // Send keyboard scancodes when a key is pressed
-    if (emu_input == INPUT_KBD && (keys&0xfff)) {
+    if (emu_input == INPUT_KEYBOARD && (keys&0xfff)) {
         int bit_set = __builtin_ffs(keys);
         if (bit_set)
             keybd_latch = 0x80 ^ key_map[bit_set-1];
     } 
     
-    if (emu_input == INPUT_JSTK) {
+    if (emu_input == INPUT_JOYSTICK) {
         jstk_btn[0] = (keys&KEY_X) ? 0x80 : 0x00;
         jstk_btn[1] = (keys&KEY_Y) ? 0x80 : 0x00;
         jstk_btn[2] = (keys&KEY_B) ? 0x80 : 0x00;

@@ -8,15 +8,16 @@
 #include "mem.h"
 #include "state.h"
 
-#define INPUT_JSTK  0
-#define INPUT_KBD   1
+#define INPUT_JOYSTICK 0
+#define INPUT_KEYBOARD 1
 
 int emu_vsync;
 int emu_input;
 int emu_screen;
 int emu_scale;
+int emu_hires;
 
-static char *basename = NULL;
+char *basename;
 
 void emu_init ();
 void emu_run ();

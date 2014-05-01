@@ -46,22 +46,23 @@ void emu_init ()
 
     // Set some sane defaults
     emu_vsync = 1;
+    emu_hires = 2;
 
     // Setup the video hardware
     video_init();
 #if 1
     crc = 0xffff;
     // Load the appropriate bios
-    if (load_bin("BASIC.ROM", 0xD000, 0x3000, &crc)) {
-        valid_crc = valid_rom_crc(crc);
-        iprintf("BIOS CRC16 %04x (%s)\n", crc, (valid_crc) ? "Valid" : "Invalid");
-        // Refuse to load a wrong bios
-        if (!valid_crc)
-            while (1);
-    } else {
-        iprintf("No BASIC.ROM found. Halting.");
+    if (load_bin("BASIC.ROM", 0xD000, 0x3000, &crc) < 0) {
+        print_msg("No BASIC.ROM found. Halting.");
         while (1);
     }
+        
+    valid_crc = valid_rom_crc(crc);
+    iprintf("BIOS CRC16 %04x (%s)\n", crc, (valid_crc) ? "Valid" : "Invalid");
+    // Refuse to load the incorrect bios
+    if (!valid_crc)
+        while (1);
 
     // Load the disk rom in place
     load_buf(disk_rom, 0xc600, 0x100);
@@ -75,8 +76,6 @@ void emu_init ()
         mainram[0xFFFD] = (reset_patch>>8)&0xFF;
     }
 #endif
-
-    basename = NULL;
 
     // Used by the fps counter
     frames_done = 0;
@@ -100,8 +99,11 @@ void emu_run ()
         update_input();
         frames_done++;
 
-        if (keysDown()&KEY_START)
+        if (keysDown()&KEY_START) {
+            irqDisable(IRQ_VBLANK);
             pause_menu(); 
+            irqEnable(IRQ_VBLANK);
+        }
 
         sound_play();
 
