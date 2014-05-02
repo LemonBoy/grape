@@ -112,12 +112,12 @@ void menu_print_page (const page_t *page)
                 sel_entry->cb(*sel_entry->opt_ptr);
         }
 
-        if (keys&KEY_A && sel_entry->confirm && sel_entry->cb) {
+        if (keys&KEY_A && sel_entry->cb) {
             sel_entry->cb(*sel_entry->opt_ptr);
             return;
         }
 
-        if (keys&KEY_B)
+        if (keys&(KEY_B|KEY_START))
             return;
 
         swiWaitForVBlank();

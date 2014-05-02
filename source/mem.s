@@ -207,7 +207,7 @@ mem_reset:
 .ltorg
 
 .bss
-.align 4
+.p2align 8
 mainram:
     .space 0x10000
 lcram:

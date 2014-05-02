@@ -12,6 +12,7 @@
 #define INPUT_KEYBOARD 1
 
 int emu_vsync;
+int emu_boost;
 int emu_input;
 int emu_screen;
 int emu_scale;

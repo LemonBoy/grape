@@ -47,6 +47,7 @@ void emu_init ()
     // Set some sane defaults
     emu_vsync = 1;
     emu_hires = 2;
+    emu_boost = 0;
 
     // Setup the video hardware
     video_init();
@@ -66,6 +67,8 @@ void emu_init ()
 
     // Load the disk rom in place
     load_buf(disk_rom, 0xc600, 0x100);
+
+    /*mainram[0xFCA8] = 0x60;*/
 #else
     if (load_bin("6502_functional_test.bin", 0x0, -1, NULL) > 0) {
         const u16 reset_patch = 0x0400;
@@ -104,7 +107,7 @@ void emu_run ()
 
         sound_play();
 
-        if (emu_vsync)
+        if (emu_vsync && !emu_boost)
             swiWaitForVBlank();
         bgUpdate();
     }

@@ -135,11 +135,18 @@ cycles  .req r5
     ldrsb r0, [reg_pc], #1
 #ifdef CHECK_IDLE_JUMP
     cmp r0, #-2
-    bne 1f
-    b _xx
+    bne 2f
+    ldr r0, =idle_loop_msg
+    unbase_pc reg_pc
+    mov r1, reg_pc
+    bl iprintf
+1:  b 1b
 #endif
-    // XXX two cycle penality for page crossing
-1:  add reg_pc, r0
+2:  add r1, reg_pc, r0
+    eor r0, r1, reg_pc
+    tst r0, #0x100
+    addne cycles, #2
+    mov reg_pc, r1
 .endm
 
 #define FLAG_CARRY  0x01<<24
@@ -164,18 +171,19 @@ cycles  .req r5
     // Decimal mode
     tst reg_f, #FLAG_DEC
     beq 1f
-    bic reg_f, #FLAG_CARRY
     // Low nibble
-    and r2, reg_a, #0x0f
-    cmp r2, #0x09
+    bic reg_f, #FLAG_CARRY
+    and r1, reg_a, #0x0f
+    cmp r1, #0x09
     addhi reg_a, #0x06
     // High nibble
-    and r1, reg_a, #0xf0<<24
+    and r1, reg_a, #0xf0
     cmp r1, #0x90
     addhi reg_a, #0x60
     orrhi reg_f, #FLAG_CARRY
+    and reg_a, #255
     add cycles, #1
-1:  nop
+1:  
 .endm
 
 .macro op_sbc r
@@ -192,6 +200,7 @@ cycles  .req r5
     tst reg_f, #FLAG_DEC
     beq 1f
     sub reg_a, #0x66
+    and reg_a, #255
     bic reg_f, #FLAG_CARRY
     // Low nibble
     and r2, reg_a, #0x0f
@@ -203,7 +212,7 @@ cycles  .req r5
     addhi reg_a, #0x60
     orrhi reg_f, #FLAG_CARRY
     add cycles, #1
-1:  nop
+1:  
 .endm
 
 .macro op_and a1
@@ -1753,6 +1762,8 @@ unhandled_msg:
 debug_msg:
     .ascii "A%02x X%02x Y%02x OP%02x F%02x SP%02x P%04x\n"
     .byte 0
+#ifdef CHECK_IDLE_JUMP
 idle_loop_msg:
     .ascii "Idle %04x\n"
     .byte 0
+#endif

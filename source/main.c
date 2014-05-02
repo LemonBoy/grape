@@ -30,7 +30,7 @@ int main(int argc, char **argv)
         /*load_disk("Airheart (1986)(Broderbund)[cr].dsk");*/
         // Slow loading
         /*load_disk("PACMAN.DSK");*/
-        /*load_disk("Karateka (1984)(Broderbund).dsk");*/
+        load_disk("Karateka (1984)(Broderbund).dsk");
         // Awesome!
         /*load_disk("lode.dsk");*/
         // AppleII+

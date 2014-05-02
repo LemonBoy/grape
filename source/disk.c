@@ -66,7 +66,7 @@ u8 disk_io_read (u16 addr)
                         phase = 0;
                     if (phase > 70)
                         phase = 70;
-                    /*track_pos = 0;*/
+                    track_pos = 0;
                     track_start = (phase >> 1) * 6656;
                 }
             }
@@ -80,6 +80,7 @@ u8 disk_io_read (u16 addr)
         case 0x8:
         case 0x9:
             motor_on = set;
+            emu_boost = set;
             return 0xff;
         // SELECT
         case 0xa:
